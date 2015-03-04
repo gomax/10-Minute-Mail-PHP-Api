@@ -1,25 +1,25 @@
-#!/usr/bin/php
 <?php
-error_reporting(E_ALL);
-include 'TenMinuteMail.php';
-$oServ = new \TenMinuteMail\Service();
 
-$oServ->getNewAddress();
-echo "\n-> Your Address is:\t".$oServ->getAddress()."\n";
+include 'TenMinuteMail.php';
+
+$service = new \TenMinuteMail\Service(uniqid(), './');
+$service->getNewAddress();
+echo "\n-> Your Address is:\t".$service->getEmail()."\n";
 while(true)
 {
-	$oServ->check();
-	echo "\n*---------------------------------------------------------*\n";
-	echo "Your Addres will expire in ".$oServ->getRemainingTime()." minutes."."\n";
-	if($oServ->getRemainingTime() <= 2)
-		$oServ->renew();
-	$o = $oServ->getEmails();
-	echo "You have ".count($o)." e-mails.\n";
-	if(count($o) > 0)
-		var_dump($o);
-	sleep(20);
+    $service->check();
+    echo "\n*---------------------------------------------------------*\n";
+    echo "Your Addres will expire in {$service->getRemainingTime()} minutes.\n";
+    if($service->getRemainingTime() <= 2) {
+        $service->renew();
+    }
+    $o = $service->getMails();
+    echo 'You have '.count($o)." e-mails.\n";
+    if(count($o) > 0) {
+        var_dump($o);
+    }
+    sleep(20);
 }
 
 // close the connection
-unset($oServ);
-?>
+unset($service);

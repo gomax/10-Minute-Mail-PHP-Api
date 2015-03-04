@@ -1,178 +1,320 @@
 <?php
+
+/**
+ * Src https://github.com/carbolymer/10-Minute-Mail-PHP-Api
+ */
+
 namespace TenMinuteMail;
+
 class Service
 {
-	private static $_sURL = 'http://10minutemail.com/10MinuteMail/index.html';
-	private $_sRenewURL = null;
-	private $_iEmailCount = 0;
-	private $_aEmails = array();
-	private $_hConn = null;
-	private $_sCookies = null;
-	private $_sEmail = null;
-	private $_iRemainingTime = null;
-	public function __construct()
-	{
-		$this->_hConn = curl_init();
-		
-//		$this->_sCookies = file_get_contents('./cookie');
+    /** @var string key for unique cookie */
+    private $uniqueId;
 
-		$aOpts = array( 
-			CURLOPT_URL				=> self::$_sURL,
-			CURLOPT_RETURNTRANSFER	=> true,
-			CURLOPT_HEADER			=> true,
-			CURLINFO_HEADER_OUT		=> true,
-			CURLOPT_FOLLOWLOCATION	=> true,
-/*			CURLOPT_COOKIESESSION	=> true,
-			CURLOPT_COOKIEFILE		=> './jar',
-			CURLOPT_COOKIEJAR		=> './jar',
-			CURLOPT_COOKIE			=> $this->_sCookies*/
-		);
-		
-		curl_setopt_array($this->_hConn, $aOpts);
-	}
-	public function __destruct()
-	{
-		curl_close($this->_hConn);
-		file_put_contents('./cookie',$this->_sCookies);
-	}
-	// obtains new email address
-	public function getNewAddress()
-	{
-		curl_setopt($this->_hConn, CURLOPT_COOKIE, '');
-		curl_setopt($this->_hConn, CURLOPT_URL, self::$_sURL);
-		$sResponse = curl_exec($this->_hConn);
-		$iFound = preg_match_all("#Set-Cookie: (.*?);#Umi",$sResponse,$aMatches);
-		if($iFound > 1)
-			$this->_sCookies = implode(";",$aMatches[1]);
-		elseif($iFound == 1)
-			$this->_sCookies = $aMatches[1][0];
-		curl_setopt($this->_hConn, CURLOPT_COOKIE, $this->_sCookies);
-		
-		preg_match("#<input id=\"addyForm:addressSelect\" type=\"text\" name=\"addyForm:addressSelect\" value=\"(.*?)\" size=#mi",$sResponse,$aMatches);
-		$this->_sEmail = $aMatches[1];
-		$this->_refreshRenewURL($sResponse);
-		$this->_aEmails = array();
-	}
-	// returns email address
-	public function getAddress()
-	{
-		return $this->_sEmail;
-	}
-	// returns remaining time in minutes
-	public function getRemainingTime()
-	{
-		return $this->_iRemainingTime;
-	}
-	// gives 10 minutes more to email address
-	public function renew()
-	{
-		curl_setopt($this->_hConn, CURLOPT_URL, $this->_sRenewURL);
-		$this->_refreshRenewURL(curl_exec($this->_hConn));
-	}
-	// returns all emails, newest is on the bottom
-	public function getEmails()
-	{
-		return $this->_aEmails;
-	}
-	// returns email count
-	public function countEmails()
-	{
-		return $this->_iEmailCount;
-	}
-	
-	// returns new emails count
-	// function can be used to check for new mail
-	public function countNewEmails()
-	{
-		$iCount = $this->_iEmailCount;
-		$this->check();
-		return $this->_iEmailCount - $iCount;
-	}
-	
-	// connects to service and gathers all info
-	// returns nothing
-	public function check()
-	{
-		curl_setopt($this->_hConn, CURLOPT_URL, self::$_sURL);
-		$sResponse = curl_exec($this->_hConn);
-		$this->_refreshRenewURL($sResponse);
-		
-		preg_match("#<span id=\"expirationTime\">Your e-mail address will expire in (\d+) minutes.</span>#Umi",$sResponse,$aMatches);
-		$this->_iRemainingTime = intval($aMatches[1]);
-		
-		$iFound = preg_match("#<table id=\"emailTable\" width=\"700px\">
-<thead>(.*?)</thead>
-<tbody>(.*?)</tbody>
-</table>#si",$sResponse,$aMatches);
-		if($iFound == 0)
-			return $this->_aEmails;
-		preg_match_all("#<tr>
-<td><input type=\"checkbox\" name=\"emailTable:(\d+):j_id29\"(.*?)disabled=\"disabled\" /></td>
-<td>(.*?)</td>
-<td><a href=\"(.*?)\" id=\"(.*?)\">(.*?)</a></td>
-<td>(.*?)</td>
-<td>(.*?)</td>
-</tr>#si",$aMatches[2],$aMatches);
-		
-		$this->_iEmailCount = count($aMatches[3]);
-		for($i = 0; $i < $this->_iEmailCount ; $i++)
-		{
-			$this->_aEmails[$i] =  new Email($i);
-			$this->_aEmails[$i]->sender = trim($aMatches[3][$i]);
-			$this->_aEmails[$i]->url = 'http://10minutemail.com'.urldecode(str_replace('&amp;','&',trim($aMatches[4][$i])));
-			$this->_aEmails[$i]->subject = trim($aMatches[6][$i]);
-			$this->_aEmails[$i]->date = strtotime(trim($aMatches[8][$i]));
-			$this->_aEmails[$i] = $this->_parseEmail($this->_aEmails[$i]);
-		}
-	}
-	
-	private function _refreshRenewURL($sResponse)
-	{
-		preg_match("#Give me <a href=\"(.*?)\" id=\"j_id20\">10 more#mi",$sResponse,$aMatches);
-		$aMatches[1] = str_replace('&amp;','&',$aMatches[1]);
-		$this->_sRenewURL = 'http://10minutemail.com'.str_replace('index.html','index.html;'.$this->_sCookies,urldecode($aMatches[1]));
-	}
-	
-	private function _parseEmail(Email $oEmail)
-	{
-		curl_setopt($this->_hConn, CURLOPT_URL, $oEmail->url);
-		$sResponse = curl_exec($this->_hConn);
-		preg_match("#<strong>(.*?)</strong>(.*?)<strong>(.*?)</strong>(.*?)<strong>(.*?)</strong>(.*?)<br />(.*?)<div style=\"clear:both\"></div>(.*?)<div id=\"j_id22\" style=\"font-size: 0px;\">#si",$sResponse,$aMatches);
-		$oEmail->subject = trim($aMatches[6]);
-		$oEmail->message = trim(str_replace('<br />
-		<br />
-		<br />
-		<br />
-','',strstr($aMatches[8], '<!--', true)));
-		return $oEmail;
-	}
+    /** @var string temporary files dir */
+    private $tmpDir;
+    
+    /** @var resource CURL connection */
+    private $connect;
 
+    /** @var bool remove cookie file from tmpDir */
+    private $destroyCookie;
 
-	private function dee($sResponse)
-	{	// TODO wyjebac
-		preg_match("#<input id=\"addyForm:addressSelect\" type=\"text\" name=\"addyForm:addressSelect\" value=\"(.*?)\" size=#mi",$sResponse,$aMatches);
-		var_dump($aMatches[1]);
-	}
+    /** @var string uri for getting email and receiving mails */
+    private $uri;
+    
+    /** @var string uri for prolongation mailbox usage */
+    private $renewUri;
+
+    /** @var Email[] array of mails */
+    private $mails = array();
+    
+    /** @var string cookies */
+    private $cookies;
+
+    /** @var string email address */
+    private $email;
+
+    /** @var int time to end mailbox in minutes */
+    private $remainingTime;
+    
+    
+    public function __construct($uniqueId, $tmpDir, $destroyCookie=true)
+    {
+        $this->uniqueId = $uniqueId;
+        $this->tmpDir = $tmpDir;
+        $this->destroyCookie = $destroyCookie;
+        $this->uri = 'http://10minutemail.com/10MinuteMail/index.html';
+        $this->connect = curl_init();
+        $this->loadCookie();
+
+        $curlOpts = array(
+            CURLOPT_URL => $this->uri,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLINFO_HEADER_OUT => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_COOKIESESSION => true
+        );
+        if ($this->cookies) {
+            $curlOpts[CURLOPT_COOKIESESSION] = false;
+            $curlOpts[CURLOPT_COOKIE] = $this->cookies;
+        }
+        curl_setopt_array($this->connect, $curlOpts);
+    }
+    
+    public function setProxy($proxy)
+    {
+        // todo
+    }
+
+    private function loadCookie()
+    {
+        $file = $this->getCookieFullPath();
+        if (file_exists($file) && is_readable($file)) {
+            $this->cookies = file_get_contents($file);
+        }
+    }
+
+    private function getCookieFullPath()
+    {
+        return $this->tmpDir . '/' . $this->getCookieName();
+    }
+
+    private function getCookieName()
+    {
+        return $this->uniqueId . '.cookie';
+    }
+    
+    public function __destruct()
+    {
+        curl_close($this->connect);
+        if ($this->destroyCookie && file_exists($this->getCookieFullPath())) {
+            unlink($this->getCookieFullPath());
+        }
+    }
+
+    public function getNewAddress()
+    {
+        curl_setopt($this->connect, CURLOPT_COOKIE, '');
+        curl_setopt($this->connect, CURLOPT_URL, $this->uri);
+        $response = curl_exec($this->connect);
+
+        if (preg_match_all('/Set-Cookie:\s*(.*?);/Umi', $response, $matches) && array_key_exists(1, $matches)) {
+            $this->cookies = implode('; ', $matches[1]);
+            file_put_contents($this->getCookieFullPath(), $this->cookies);
+        }
+        else {
+            throw new \Exception('Can\'t get cookies');
+        }
+        curl_setopt($this->connect, CURLOPT_COOKIE, $this->cookies);
+        
+        $matches = array();
+        if (preg_match('/<input\s+id="addyForm:addressSelect"\s+type="text"\s+name="addyForm:addressSelect"\s+value="([^\"]*)"/mi', $response, $matches)
+            && array_key_exists(1, $matches))
+        {
+            $this->email = $matches[1];
+            $this->refreshRenewURL($response);
+            $this->mails = array();
+        }
+        else {
+            throw new \Exception('Can\'t parse email');
+        }
+    }
+
+    public function getEmail()
+    {
+        return $this->email;
+    }
+
+    public function getRemainingTime()
+    {
+        return $this->remainingTime;
+    }
+
+    public function renew()
+    {
+        curl_setopt($this->connect, CURLOPT_URL, $this->renewUri);
+        $this->refreshRenewURL(curl_exec($this->connect));
+    }
+
+    /**
+     * @return Email[]
+     */
+    public function getMails()
+    {
+        return $this->mails;
+    }
+
+    /**
+     * @return Email[]
+     * @throws \Exception
+     */
+    public function check()
+    {
+        curl_setopt($this->connect, CURLOPT_URL, $this->uri);
+        $response = curl_exec($this->connect);
+        $this->refreshRenewURL($response);
+
+        if (preg_match('/<span id="expirationTime">Your e-mail address will expire in (\d+) minutes.<\/span>/Umi', $response, $matches)
+            && array_key_exists(1, $matches))
+        {
+            $this->remainingTime = intval($matches[1]);
+        }
+        else {
+            throw new \Exception('Can\'t parse expiration time');
+        }
+
+        if (!preg_match('/<table id="emailTable" width="700px">[\n\r]*<thead>(.*?)<\/thead>[\n\r]*<tbody>(.*?)<\/tbody>[\n\r]*<\/table>/si', $response, $tableMatches)
+            || !array_key_exists(2, $tableMatches))
+        {
+            throw new \Exception('Can\'t find mail table');
+        }
+
+        $matchRes = preg_match_all(
+            '/<tr>'
+                .'[\n\r\s\t]*<td><input\s*type="checkbox"\s*name="emailTable:(\d+):j_id29"(.*?)disabled="disabled"\s*\/><\/td>' // Read
+                .'[\n\r\s\t]*<td>(.*?)<\/td>'                                                                                   // From
+                .'[\n\r\s\t]*<td><a\s*href="(.*?)"\s*id="(.*?)">(.*?)<\/a><\/td>'                                               // Subject
+                .'[\n\r\s\t]*<td>(.*?)<\/td>'                                                                                   // Preview
+                .'[\n\r\s\t]*<td>(.*?)<\/td>'                                                                                   // Date
+                .'[\n\r\s\t]*<\/tr>/si',
+           $tableMatches[2],
+           $matches
+        );
+        if (!$matchRes) {
+            throw new \Exception('Can\'t parse table');
+        }
+
+        foreach ($matches as $match) {
+            if (count($match) !== 9) {
+                continue;
+            }
+            $mail = new Email();
+            $mail->setSender(trim($match[3]));
+            $mail->setUrl('http://10minutemail.com'.urldecode(htmlspecialchars_decode(trim($match[4]))));
+            $mail->setSubject(trim($match[6]));
+            $mail->setDate(strtotime(trim($match[8])));
+
+            $this->mails[] = $this->parseEmail($mail);
+        }
+    }
+
+    private function refreshRenewURL($response)
+    {
+       if (preg_match('/Give me <a href="([^"]*)" id="j_id\d+">10 more/mi', $response, $matches)
+           && array_key_exists(1, $matches))
+       {
+           $matches[1] = htmlspecialchars_decode($matches[1]);
+           $this->renewUri = 'http://10minutemail.com'.str_replace('index.html','index.html;'.$this->cookies,urldecode($matches[1]));
+       }
+       else {
+           var_dump($matches);
+           throw new \Exception('Can\'t get refresh url');
+       }
+    }
+
+    private function parseEmail(Email $mail)
+    {
+        curl_setopt($this->connect, CURLOPT_URL, $mail->getUrl());
+        $response = curl_exec($this->connect);
+        preg_match('/<strong>(.*?)<\/strong>(.*?)<strong>(.*?)<\/strong>(.*?)<strong>(.*?)<\/strong>(.*?)<br\s*\/>(.*?)<div\s*style="clear:both"><\/div>(.*?)<div\s*id="j_id\d+"\s*style="font-size:\s*0px;">/si', $response, $aMatches);
+        $mail->setSubject(trim($aMatches[6]));
+        $mail->setMessage(trim($aMatches[8]));
+        return $mail;
+    }
 };
 
 class Email
 {
-	private $_iID = null;
-	public $sender = null;
-	public $subject = null;
-	public $message = null;
-	public $date = null;
-	public $url = null;
-	// -1 means that this is response
-	public function __construct($iID = -1)
-	{
-		$this->_iID = $iID;
-	}
-	
-	public function reply($sMessage)
-	{
-		// TODO
-		;
-	}
-};
-?>
+    /** @var string */
+    private $sender;
+    /** @var string */
+    private $subject;
+    /** @var string */
+    private $message;
+    /** @var string */
+    private $date;
+    /** @var string */
+    private $url;
+
+    /**
+     * @return string
+     */
+    public function getSender()
+    {
+        return $this->sender;
+    }
+
+    /**
+     * @param string $sender
+     */
+    public function setSender($sender)
+    {
+        $this->sender = $sender;
+    }
+
+    /**
+     * @return string
+     */
+    public function getSubject()
+    {
+        return $this->subject;
+    }
+
+    /**
+     * @param string $subject
+     */
+    public function setSubject($subject)
+    {
+        $this->subject = $subject;
+    }
+
+    /**
+     * @return string
+     */
+    public function getMessage()
+    {
+        return $this->message;
+    }
+
+    /**
+     * @param string $message
+     */
+    public function setMessage($message)
+    {
+        $this->message = $message;
+    }
+
+    /**
+     * @return string
+     */
+    public function getDate()
+    {
+        return $this->date;
+    }
+
+    /**
+     * @param string $date
+     */
+    public function setDate($date)
+    {
+        $this->date = $date;
+    }
+
+    /**
+     * @return string
+     */
+    public function getUrl()
+    {
+        return $this->url;
+    }
+
+    /**
+     * @param string $url
+     */
+    public function setUrl($url)
+    {
+        $this->url = $url;
+    }
+}
