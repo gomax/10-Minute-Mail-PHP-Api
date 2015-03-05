@@ -78,14 +78,19 @@ class Service
 
     private function getCookieFullPath()
     {
-        return $this->tmpDir . '/' . $this->getCookieName();
+        return $this->getCookieDir() . '/' . $this->getCookieName();
+    }
+
+    private function getCookieDir()
+    {
+        return $this->tmpDir;
     }
 
     private function getCookieName()
     {
         return $this->uniqueId . '.cookie';
     }
-    
+
     public function __destruct()
     {
         curl_close($this->connect);
@@ -105,10 +110,11 @@ class Service
             file_put_contents($this->getCookieFullPath(), $this->cookies);
         }
         else {
+            file_put_contents($this->getCookieDir().'/abc.cookie', $this->cookies);
             throw new \Exception('Can\'t get cookies');
         }
         curl_setopt($this->connect, CURLOPT_COOKIE, $this->cookies);
-        
+
         $matches = array();
         if (preg_match('/<input\s+id="addyForm:addressSelect"\s+type="text"\s+name="addyForm:addressSelect"\s+value="([^\"]*)"/mi', $response, $matches)
             && array_key_exists(1, $matches))
@@ -118,6 +124,7 @@ class Service
             $this->mails = array();
         }
         else {
+            file_put_contents($this->getCookieDir().'/abc.cookie', $this->cookies);
             throw new \Exception('Can\'t parse email');
         }
     }
@@ -132,6 +139,9 @@ class Service
         return $this->remainingTime;
     }
 
+    /**
+     * @throws \Exception
+     */
     public function renew()
     {
         curl_setopt($this->connect, CURLOPT_URL, $this->renewUri);
@@ -156,60 +166,70 @@ class Service
         $response = curl_exec($this->connect);
         $this->refreshRenewURL($response);
 
-        if (preg_match('/<span id="expirationTime">Your e-mail address will expire in (\d+) minutes.<\/span>/Umi', $response, $matches)
+        if (preg_match('/<span.+?id="expirationTime"[^>]*>.*?Your.*?e\-mail.*?address.*?will.*?expire.*?in[^\d]*(\d+).*?minutes.*?\..*?<\/span>/Umi', $response, $matches)
             && array_key_exists(1, $matches))
         {
-            $this->remainingTime = intval($matches[1]);
+            $this->remainingTime = (int) $matches[1];
         }
         else {
+            file_put_contents($this->getCookieDir().'/abc.cookie', $this->cookies);
             throw new \Exception('Can\'t parse expiration time');
         }
 
-        if (!preg_match('/<table id="emailTable" width="700px">[\n\r]*<thead>(.*?)<\/thead>[\n\r]*<tbody>(.*?)<\/tbody>[\n\r]*<\/table>/si', $response, $tableMatches)
+        if (!preg_match('/<table.+?id="emailTable"[^>]*>[\n\r\s\t]*<thead[^>]*>(.*?)<\/thead>[\n\r\s\t]*<tbody[^>]*>(.*?)<\/tbody>[\n\r\s\t]*<\/table>/si', $response, $tableMatches)
             || !array_key_exists(2, $tableMatches))
         {
+            file_put_contents($this->getCookieDir().'/abc.cookie', $this->cookies);
             throw new \Exception('Can\'t find mail table');
         }
 
-        $matchRes = preg_match_all(
-            '/<tr>'
-                .'[\n\r\s\t]*<td><input\s*type="checkbox"\s*name="emailTable:(\d+):j_id29"(.*?)disabled="disabled"\s*\/><\/td>' // Read
-                .'[\n\r\s\t]*<td>(.*?)<\/td>'                                                                                   // From
-                .'[\n\r\s\t]*<td><a\s*href="(.*?)"\s*id="(.*?)">(.*?)<\/a><\/td>'                                               // Subject
-                .'[\n\r\s\t]*<td>(.*?)<\/td>'                                                                                   // Preview
-                .'[\n\r\s\t]*<td>(.*?)<\/td>'                                                                                   // Date
-                .'[\n\r\s\t]*<\/tr>/si',
-           $tableMatches[2],
-           $matches
-        );
-        if (!$matchRes) {
-            throw new \Exception('Can\'t parse table');
+        // remove 2 elements from beginning (its all and title row)
+        if (count($tableMatches) > 2) {
+            array_shift($tableMatches);
+            array_shift($tableMatches);
+            $tableMatches = implode('', $tableMatches);
         }
+        else {
+            $tableMatches = '';
+        }
+        $matchRes = preg_match_all(
+            '/<tr[^>]*>.*?'
+                .'[\n\r\s\t]*<td[^>]*>.*?<input.*?name="emailTable:\d+:j_id\d*"[^>]*>.*?<\/td>'  // Read
+                .'[\n\r\s\t]*<td[^>]*>(.*?)<\/td>'                                               // From
+                .'[\n\r\s\t]*<td[^>]*>.*?<a.*?href="(.*?)"[^>]*>(.*?)<\/a>.*?<\/td>'             // Subject
+                .'[\n\r\s\t]*<td[^>]*>.*?<\/td>'                                                 // Preview
+                .'[\n\r\s\t]*<td[^>]*>(.*?)<\/td>'                                               // Date
+                .'[\n\r\s\t]*<\/tr>/si',
+            $tableMatches,
+            $matches,
+            PREG_SET_ORDER
+        );
+        if ($matchRes) {
+            foreach ($matches as $match) {
+                if (count($match) !== 5) {
+                    continue;
+                }
+                $mail = new Email();
+                $mail->setSender(trim($match[1]));
+                $mail->setUrl('http://10minutemail.com'.urldecode(htmlspecialchars_decode(trim($match[2]))));
+                $mail->setSubject(trim($match[3]));
+                $mail->setDate(strtotime(trim($match[4])));
 
-        foreach ($matches as $match) {
-            if (count($match) !== 9) {
-                continue;
+                $this->mails[] = $this->parseEmail($mail);
             }
-            $mail = new Email();
-            $mail->setSender(trim($match[3]));
-            $mail->setUrl('http://10minutemail.com'.urldecode(htmlspecialchars_decode(trim($match[4]))));
-            $mail->setSubject(trim($match[6]));
-            $mail->setDate(strtotime(trim($match[8])));
-
-            $this->mails[] = $this->parseEmail($mail);
         }
     }
 
     private function refreshRenewURL($response)
     {
-       if (preg_match('/Give me <a href="([^"]*)" id="j_id\d+">10 more/mi', $response, $matches)
+       if (preg_match('/Give me.*?<a.*?href="([^"]*)".*?id="j_id\d+".*?>\d+.*?more/mi', $response, $matches)
            && array_key_exists(1, $matches))
        {
            $matches[1] = htmlspecialchars_decode($matches[1]);
            $this->renewUri = 'http://10minutemail.com'.str_replace('index.html','index.html;'.$this->cookies,urldecode($matches[1]));
        }
        else {
-           var_dump($matches);
+           file_put_contents($this->getCookieDir().'/abc.cookie', $this->cookies);
            throw new \Exception('Can\'t get refresh url');
        }
     }
