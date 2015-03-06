@@ -1,20 +1,21 @@
 {
-  "name": "gomax/10-Minute-Mail-PHP-Api",
-  "type": "library",
-  "description": "lib for parsing emails in 10MinuteMail dot com",
-  "homepage": "https://github.com/gomax/10-Minute-Mail-PHP-Api",
-  "license": "MIT",
-  "authors": [
-    {
-      "name": "Max Gorovenko"
+    "name": "gomax/10-Minute-Mail-PHP-Api",
+    "type": "library",
+    "description": "lib for parsing emails in 10MinuteMail dot com",
+    "homepage": "https://github.com/gomax/10-Minute-Mail-PHP-Api",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Max Gorovenko"
+        }
+    ],
+    "version": "0.9.0",
+    "require": {
+        "php": ">=5.3.0"
+    },
+    "autoload": {
+        "psr-0": {
+            "TenMinuteMail": "./"
+        }
     }
-  ],
-  "require": {
-    "php": ">=5.3.0"
-  },
-  "autoload": {
-    "psr-0": {
-      "TenMinuteMail": "./"
-    }
-  }
 }
