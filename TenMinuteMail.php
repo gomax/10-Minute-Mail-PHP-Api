@@ -1,9 +1,5 @@
 <?php
 
-/**
- * Src https://github.com/carbolymer/10-Minute-Mail-PHP-Api
- */
-
 namespace TenMinuteMail;
 
 class Service
@@ -13,7 +9,7 @@ class Service
 
     /** @var string temporary files dir */
     private $tmpDir;
-    
+
     /** @var resource CURL connection */
     private $connect;
 
@@ -22,13 +18,13 @@ class Service
 
     /** @var string uri for getting email and receiving mails */
     private $uri;
-    
+
     /** @var string uri for prolongation mailbox usage */
     private $renewUri;
 
-    /** @var Email[] array of mails */
+    /** @var Email[] array of emails */
     private $mails = array();
-    
+
     /** @var string cookies */
     private $cookies;
 
@@ -37,8 +33,8 @@ class Service
 
     /** @var int time to end mailbox in minutes */
     private $remainingTime;
-    
-    
+
+
     public function __construct($uniqueId, $tmpDir, $destroyCookie=true)
     {
         $this->uniqueId = $uniqueId;
@@ -62,10 +58,10 @@ class Service
         }
         curl_setopt_array($this->connect, $curlOpts);
     }
-    
+
     public function setProxy($proxy)
     {
-        // todo
+        curl_setopt($this->connect, CURLOPT_PROXY, $proxy);
     }
 
     private function loadCookie()
@@ -101,7 +97,9 @@ class Service
 
     public function getNewAddress()
     {
-        curl_setopt($this->connect, CURLOPT_COOKIE, '');
+        if (!$this->cookies) {
+            curl_setopt($this->connect, CURLOPT_COOKIE, '');
+        }
         curl_setopt($this->connect, CURLOPT_URL, $this->uri);
         $response = curl_exec($this->connect);
 
@@ -166,7 +164,7 @@ class Service
         $response = curl_exec($this->connect);
         $this->refreshRenewURL($response);
 
-        if (preg_match('/<span.+?id="expirationTime"[^>]*>.*?Your.*?e\-mail.*?address.*?will.*?expire.*?in[^\d]*(\d+).*?minutes.*?\..*?<\/span>/Umi', $response, $matches)
+        if (preg_match('/<span.+?id="expirationTime"[^>]*>.*?Your.*?e\-mail.*?address.*?will.*?expire.*?in[^\d]*(\d+)[^\d]*?minutes.*?\..*?<\/span>/Umi', $response, $matches)
             && array_key_exists(1, $matches))
         {
             $this->remainingTime = (int) $matches[1];
@@ -222,119 +220,29 @@ class Service
 
     private function refreshRenewURL($response)
     {
-       if (preg_match('/Give me.*?<a.*?href="([^"]*)".*?id="j_id\d+".*?>\d+.*?more/mi', $response, $matches)
-           && array_key_exists(1, $matches))
-       {
-           $matches[1] = htmlspecialchars_decode($matches[1]);
-           $this->renewUri = 'http://10minutemail.com'.str_replace('index.html','index.html;'.$this->cookies,urldecode($matches[1]));
-       }
-       else {
-           file_put_contents($this->getCookieDir().'/abc.cookie', $this->cookies);
-           throw new \Exception('Can\'t get refresh url');
-       }
+        if (preg_match('/Give me.*?<a.*?href="([^"]*)".*?id="j_id\d+".*?>\d+.*?more/mi', $response, $matches)
+            && array_key_exists(1, $matches))
+        {
+            $matches[1] = htmlspecialchars_decode($matches[1]);
+            $this->renewUri = 'http://10minutemail.com'.str_replace('index.html','index.html;'.$this->cookies,urldecode($matches[1]));
+        }
+        else {
+            file_put_contents($this->getCookieDir().'/abc.cookie', $this->cookies);
+            throw new \Exception('Can\'t get refresh url');
+        }
     }
 
     private function parseEmail(Email $mail)
     {
         curl_setopt($this->connect, CURLOPT_URL, $mail->getUrl());
         $response = curl_exec($this->connect);
-        preg_match('/<strong>(.*?)<\/strong>(.*?)<strong>(.*?)<\/strong>(.*?)<strong>(.*?)<\/strong>(.*?)<br\s*\/>(.*?)<div\s*style="clear:both"><\/div>(.*?)<div\s*id="j_id\d+"\s*style="font-size:\s*0px;">/si', $response, $aMatches);
-        $mail->setSubject(trim($aMatches[6]));
-        $mail->setMessage(trim($aMatches[8]));
-        return $mail;
-    }
-};
+        if (preg_match('/<strong>(.*?)<\/strong>(.*?)<strong>(.*?)<\/strong>(.*?)<strong>(.*?)<\/strong>(.*?)<br\s*\/>(.*?)<div\s*style="clear:both"><\/div>(.*?)<div\s*id="j_id\d+"\s*style="font-size:\s*0px;">/si', $response, $aMatches)) {
+            $mail->setSubject(trim($aMatches[6]));
+            $mail->setMessage(trim($aMatches[8]));
 
-class Email
-{
-    /** @var string */
-    private $sender;
-    /** @var string */
-    private $subject;
-    /** @var string */
-    private $message;
-    /** @var string */
-    private $date;
-    /** @var string */
-    private $url;
-
-    /**
-     * @return string
-     */
-    public function getSender()
-    {
-        return $this->sender;
-    }
-
-    /**
-     * @param string $sender
-     */
-    public function setSender($sender)
-    {
-        $this->sender = $sender;
-    }
-
-    /**
-     * @return string
-     */
-    public function getSubject()
-    {
-        return $this->subject;
-    }
-
-    /**
-     * @param string $subject
-     */
-    public function setSubject($subject)
-    {
-        $this->subject = $subject;
-    }
-
-    /**
-     * @return string
-     */
-    public function getMessage()
-    {
-        return $this->message;
-    }
-
-    /**
-     * @param string $message
-     */
-    public function setMessage($message)
-    {
-        $this->message = $message;
-    }
-
-    /**
-     * @return string
-     */
-    public function getDate()
-    {
-        return $this->date;
-    }
-
-    /**
-     * @param string $date
-     */
-    public function setDate($date)
-    {
-        $this->date = $date;
-    }
-
-    /**
-     * @return string
-     */
-    public function getUrl()
-    {
-        return $this->url;
-    }
-
-    /**
-     * @param string $url
-     */
-    public function setUrl($url)
-    {
-        $this->url = $url;
+            return $mail;
+        }
+        file_put_contents($this->getCookieDir().'/abc.cookie', $this->cookies);
+        throw new \Exception('Can\'t get mail content');
     }
 }
